@@ -25,16 +25,30 @@ class UAMEnv(gym.Env):
                  pricing_model = None,
                  time_horizon = None,
                  passenger_pricing_model = None,
-                 take_off_time = 0.25,
-                 landing_time = 0.25,
+                 take_off_time = 0.1,
+                 landing_time = 0.1,
                  vertiports_n_parked = None,
-                 vertiports_max_parked = None,
-                 vertiports_max_charged = None
+                 vertiports_max_parked = 6,
+                 vertiports_max_charged = 6,
+                 max_x_y_axis = 60,
+                 evtol_max_battery = 110, #kwh,
+                 evtol_max_range = 50, # miles
+                 max_passenger = 4,
+                 vertiport_charging_rate = 150 #kw
                  ):
         self.n_vertiports = n_vertiports
+        self.max_x_y_axis = max_x_y_axis
         self.n_evtols = n_evtols
         self.action_space = Discrete(n_vertiports)
-        while ((evtols_initial_locations == evtols_initial_locations.T.mode().values).to(th.int64).sum()).item() > 3:
+        self.evtol_max_battery = evtol_max_battery
+        self.evtol_max_range = evtol_max_range
+        self.evtol_energy_per_mile = evtol_max_battery/evtol_max_range
+
+        self.vertiport_charging_rate = vertiport_charging_rate
+        self.max_charged = vertiports_max_charged
+        self.max_parked = vertiports_max_parked
+        self.max_passenger = max_passenger
+        while ((evtols_initial_locations == evtols_initial_locations.T.mode().values).to(th.int64).sum()).item() > vertiports_max_charged:
             evtols_initial_locations = self.generate_evtols_starting_locations()
 
 
@@ -42,8 +56,8 @@ class UAMEnv(gym.Env):
             Vertiport(
                 id=i,
                 location=vertiport_locations[i,:],
-                max_evotls_park = 6,
-                max_evtol_charge=6
+                max_evotls_park = self.max_parked,
+                max_evtol_charge=self.max_charged
             )
             for i in range(n_vertiports)]
 
@@ -51,7 +65,7 @@ class UAMEnv(gym.Env):
         self.landing_time = landing_time # 15 minutes or .25 hours
         self.evtols = [
             eVTOL(
-                id=i, max_passenger=4,
+                id=i, max_passenger=max_passenger,
                   location=evtols_initial_locations[i,:],
                   take_off_time = take_off_time,
                 landing_time=landing_time
@@ -82,15 +96,12 @@ class UAMEnv(gym.Env):
                 self.vertiports[self.evtols[i].current_location].update_parked_evtols(1)
 
         if vertiports_max_parked:
-            self.vertiports_max_parked = vertiports_max_parked
-        else:
             self.vertiports_max_parked = th.zeros((n_vertiports, 1))
             for i in range(n_vertiports):
                 self.vertiports_max_parked[i,0] = self.vertiports[i].max_evotls_park
 
         if vertiports_max_charged:
-            self.vertiports_max_charged = vertiports_max_charged
-        else:
+
             self.vertiports_max_charged = th.zeros((n_vertiports, 1))
             for i in range(n_vertiports):
                 self.vertiports_max_charged[i, 0] = self.vertiports[i].max_evtol_charge
@@ -98,19 +109,20 @@ class UAMEnv(gym.Env):
 
         vertiport_graph = self.get_vertiport_graph()
         evtol_graph = self.get_evtol_graph()
+        self.reachables = (self.vertiports_distance_matrix <= self.evtol_max_range).to(th.int64)
         self.observation_space = Dict(
             dict(
-                vertiport_location=Box(low=0, high=100, shape=vertiport_locations.shape),
+                vertiport_location=Box(low=0, high=max_x_y_axis, shape=vertiport_locations.shape),
                 mask=Box(low=0, high=1, shape=(self.n_vertiports,1)),
                 demand=Box(low=0, high=100, shape=demand_model.shape),
                 evtols_locations=Box(low=0, high=n_evtols, shape=self.evtols_locations.shape),
                 electricity_pricing_model=Box(low=0, high=n_evtols, shape=self.electricity_pricing_model.shape),
-                vertiports_distance_matrix=Box(low=0, high=100, shape=self.vertiports_distance_matrix.shape),
-                evtols_next_decision_time=Box(low=6.00, high=18.00, shape=self.evtols_next_decision_time.shape),
+                vertiports_distance_matrix=Box(low=0, high=max_x_y_axis, shape=self.vertiports_distance_matrix.shape),
+                evtols_next_decision_time=Box(low=6.00, high=time_horizon, shape=self.evtols_next_decision_time.shape),
                 evtol_taking_decision=Discrete(n_evtols),
-                evtol_taking_decision_location=Box(low=0, high=100, shape=(1,2)),
-                vertiports_n_parked=Box(low=0, high=3, shape=self.vertiports_n_parked.shape),
-                vertiports_n_charged=Box(low=0, high=3, shape=self.vertiports_n_charged.shape),
+                evtol_taking_decision_location=Box(low=0, high=max_x_y_axis, shape=(1,2)),
+                vertiports_n_parked=Box(low=0, high=vertiports_max_parked, shape=self.vertiports_n_parked.shape),
+                vertiports_n_charged=Box(low=0, high=vertiports_max_charged, shape=self.vertiports_n_charged.shape),
                 vertiport_graph_nodes=Box(low=0, high=1, shape=vertiport_graph["nodes"].shape),
                 vertiport_graph_adjacency= Box(low=0, high=1, shape=vertiport_graph["adjacency"].shape),
                 evtol_graph_nodes=Box(low=0, high=1, shape=evtol_graph["nodes"].shape),
@@ -127,7 +139,6 @@ class UAMEnv(gym.Env):
         pass
 
     def step(self, action):
-        # action space: [no action, locations]
         # action taken should be in such a way that UAM taking decision can only go to vertiports where there is a vacancy to park or charge
         evtol_taking_decision_id = self.evtol_taking_decision
         current_time = self.current_time.clone()
@@ -204,8 +215,8 @@ class UAMEnv(gym.Env):
             evtol_current_location_id = evtol_taking_decision.current_location
             evtol_speed = evtol_taking_decision.speed
             flight_time = self.vertiports_distance_matrix[evtol_current_location_id, action]/evtol_speed
-            discharge = flight_time*0.9 # this will be changed
-            charge_time = discharge # this will be changed
+            discharge = self.evtol_energy_per_mile*self.vertiports_distance_matrix[evtol_current_location_id, action]#flight_time*0.9 # this will be changed
+            charge_time = discharge/self.vertiport_charging_rate # this will be changed
             self.evtols[evtol_taking_decision_id].battery.current_battery_charge -= discharge
 
             #####
@@ -288,6 +299,8 @@ class UAMEnv(gym.Env):
             max_charged_locs = max_charged_locs[:,0]
             mask[max_charged_locs, 0] = 0
 
+
+        mask = mask*(self.reachables[evtol_current_location][:,None])
         return mask
 
     def get_new_state(self):
@@ -350,16 +363,20 @@ class UAMEnv(gym.Env):
 
     def reset(self):
         evtols_initial_locations = self.generate_evtols_starting_locations()
-        while ((evtols_initial_locations == evtols_initial_locations.T.mode().values).to(th.int64).sum()).item() > 3:
+        while ((evtols_initial_locations == evtols_initial_locations.T.mode().values).to(th.int64).sum()).item() > self.vertiports_max_charged[0]:
             evtols_initial_locations = self.generate_evtols_starting_locations()
         self.evtols = [
             eVTOL(
-                id=i, max_passenger=4,
-                location=evtols_initial_locations[i, :],
+                id=i, max_passenger=self.max_passenger,
+                location=evtols_initial_locations[i, :].item(),
                 take_off_time=self.take_off_time,
                 landing_time=self.landing_time
             )
             for i in range(self.n_evtols)]
+        self.evtols_locations = th.zeros((self.n_evtols, 1))
+        for i in range(self.n_evtols):
+            self.evtols_locations[i, 0] = self.evtols[i].current_location
+
         self.demand_model = self.generate_demand_model()
         self.passenger_pricing_model = self.generate_passenger_pricing_model()
         self.current_time = th.tensor([6.00]) # read as 6 am
@@ -368,7 +385,7 @@ class UAMEnv(gym.Env):
         self.total_electricity_charge = 0.0
         self.total_ticket_collection = 0.0
         self.i = 0
-        self.evtols_locations = self.generate_evtols_starting_locations()
+
         self.electricity_pricing_model = self.generate_electricity_pricing_model()
         self.vertiports_n_charged = th.zeros((self.n_vertiports, 1))
 
@@ -464,8 +481,8 @@ class UAMEnv(gym.Env):
             # x,y location
         Vertiport_graph_nods = []
         for vertiport in self.vertiports:
-            props = [vertiport.location[0].item()/60,
-                     vertiport.location[1].item()/60,
+            props = [vertiport.location[0].item()/self.max_x_y_axis,
+                     vertiport.location[1].item()/self.max_x_y_axis,
                      vertiport.n_evtol_parked/vertiport.max_evotls_park,
                      vertiport.n_evtols_charging/vertiport.max_evtol_charge,
                      vertiport.max_evotls_park/6,
@@ -522,7 +539,7 @@ class UAMEnv(gym.Env):
         return demand
 
     def generate_electricity_pricing_model(self):
-        price = 1.0
+        price = .2
         return th.tensor([price])
 
 
@@ -537,7 +554,7 @@ class UAMEnv(gym.Env):
 
     def generate_passenger_pricing_model(self):
 
-        return ((self.vertiports_distance_matrix * .8).to(th.int64)).to(th.float32)
+        return ((self.vertiports_distance_matrix * 1.5).to(th.int64)).to(th.float32)
 
     def single_peak_demand(self, time, peak_time, peak, base, std):
         demand = int((1/(std*1.41*3.14))*np.exp(-.5*((time - peak_time)/std)**2)*peak + base) + th.randint(1,10, (1,)).item()

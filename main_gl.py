@@ -25,7 +25,8 @@ from stable_baselines_al.common.vec_env import DummyVecEnv, SubprocVecEnv
 warnings.filterwarnings('ignore')
 n_vertiports = 8 # number of vertiports
 n_evtols = 19 # number of evtols
-vertiport_locations = th.rand((n_vertiports,2))*60 # actual coordinates of the vertiports
+max_x_y_axis = 50
+vertiport_locations = th.rand((n_vertiports,2))*max_x_y_axis # actual coordinates of the vertiports
 evtols_initial_locations = th.randint(0, n_vertiports, (n_evtols, 1)) # initial locations of the evtols
 demand = th.randint(0, 100, (n_vertiports, n_vertiports)) # constant demand for now
 ticket = demand*.05 # price of the ticket
@@ -39,6 +40,7 @@ env = UAMEnv(
         evtols_initial_locations = evtols_initial_locations,
         demand_model=demand,
         time_horizon = time_horizon,
+        max_x_y_axis = max_x_y_axis
     )
 
 policy_kwargs=dict(

@@ -25,12 +25,12 @@ class eVTOL:
     def __init__(self,
                  id,
                  location = None,
-                 speed = 40, #miles/hr
+                 speed = 74.5, #miles/hr
                  max_passenger = 6,
                  current_passengers=0,
                  charging = False,
-                 landing_time = 0.25,
-                 take_off_time = 0.25,
+                 landing_time = 0.1,
+                 take_off_time = 0.1,
                  next_flight_time = 6.00,
                  next_decision_time = 6.00,
                  status = 0
