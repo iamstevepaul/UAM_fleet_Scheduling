@@ -87,7 +87,7 @@ class ActorCriticGCAPSPolicy(BasePolicy):
         optimizer_class: Type[th.optim.Optimizer] = th.optim.Adam,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         features_dim = 128,
-        node_dim=96
+        node_dim=8
                  ):
         super(ActorCriticGCAPSPolicy, self).__init__(observation_space,
             action_space,
