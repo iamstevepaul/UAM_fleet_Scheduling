@@ -100,7 +100,7 @@ class UAMEnv(gym.Env):
         evtol_graph = self.get_evtol_graph()
         self.observation_space = Dict(
             dict(
-                vertiport_location=Box(low=0, high=60, shape=vertiport_locations.shape),
+                vertiport_location=Box(low=0, high=100, shape=vertiport_locations.shape),
                 mask=Box(low=0, high=1, shape=(self.n_vertiports,1)),
                 demand=Box(low=0, high=100, shape=demand_model.shape),
                 evtols_locations=Box(low=0, high=n_evtols, shape=self.evtols_locations.shape),
@@ -464,23 +464,19 @@ class UAMEnv(gym.Env):
             # x,y location
         Vertiport_graph_nods = []
         for vertiport in self.vertiports:
-            props = [vertiport.location[0].item()/60,
-                     vertiport.location[1].item()/60,
+            props = [vertiport.location[0].item()/100,
+                     vertiport.location[1].item()/100,
                      vertiport.n_evtol_parked/vertiport.max_evotls_park,
                      vertiport.n_evtols_charging/vertiport.max_evtol_charge,
-          ]
+                     vertiport.max_evotls_park/3,
+                     vertiport.max_evtol_charge/3,]
             ## information  regarding the edmand
-            current_time_ind = ((self.time_varying_demand_model["time_points"] == int(self.current_time)).nonzero(as_tuple=True)[0]).item()
-            if self.time_varying_demand_model["time_points"].shape[0] == current_time_ind + 1:
-                next_time_ind = current_time_ind
-            else:
-                next_time_ind = current_time_ind+1
             from_sum = self.time_varying_demand_model["demand"][:, vertiport.id, :].sum(-1)
             to_sum = self.time_varying_demand_model["demand"][:, :, vertiport.id].sum(-1)
-            props.extend([(from_sum/from_sum.max())[current_time_ind], (from_sum/from_sum.max())[next_time_ind]]),
-            props.extend([(to_sum/to_sum.max())[current_time_ind], (to_sum/to_sum.max())[next_time_ind]])
+            props.extend(from_sum/from_sum.max()),
+            props.extend(to_sum/to_sum.max())
             # information regarding the passenger price
-            # props.extend(self.passenger_pricing_model.view(-1)/self.passenger_pricing_model.view(-1).max())
+            props.extend(self.passenger_pricing_model.view(-1)/self.passenger_pricing_model.view(-1).max())
 
             Vertiport_graph_nods.append(props)
 
