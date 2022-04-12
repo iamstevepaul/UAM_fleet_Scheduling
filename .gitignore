@@ -27,6 +27,7 @@ share/python-wheels/
 *.egg
 MANIFEST
 /logger
+.DS_Store
 /tb_logger.py
 # PyInstaller
 #  Usually these files are written by a python script from a template

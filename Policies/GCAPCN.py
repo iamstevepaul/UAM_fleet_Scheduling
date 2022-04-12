@@ -120,7 +120,7 @@ class GCAPCNEvtolFeatureExtractor(nn.Module):
                  features_dim=128,
                  n_p=1,
                  node_dim=2,
-                 n_K=1
+                 n_K=2
                  ):
         super(GCAPCNEvtolFeatureExtractor, self).__init__()
         self.n_layers = n_layers
@@ -164,12 +164,12 @@ class GCAPCNEvtolFeatureExtractor(nn.Module):
         L = D - A
         # L_topo = data["adjacency"]
         # L = L_topo
-        # L_squared = torch.matmul(L, L)
+        L_squared = torch.matmul(L, L)
         # L_cube = torch.matmul(L, L_squared)
 
         g_L1_1 = self.W_L_1_G1(torch.cat((F0[:, :, :],
-                                          torch.matmul(L, F0)[:, :, :]
-                                          # torch.matmul(L_squared, F0)[:, :, :]
+                                          torch.matmul(L, F0)[:, :, :],
+                                          torch.matmul(L_squared, F0)[:, :, :]
                                           ),
                                          -1))
 
@@ -244,13 +244,13 @@ class GCAPCNFeatureExtractor(nn.Module):
             torch.eye(num_locations, device=X.device).expand((num_samples, num_locations, num_locations)),
             (A.sum(-1) - 1)[:, None].expand((num_samples, num_locations, num_locations)))
         L = D - A
-        # L_topo = data["adjacency"]
+        # L_topo = data["topo_laplacian"]
         # L = L_topo
         # L_squared = torch.matmul(L, L)
         # L_cube = torch.matmul(L, L_squared)
 
         g_L1_1 = self.W_L_1_G1(torch.cat((F0[:, :, :],
-                                          torch.matmul(L, F0)[:, :, :]
+                                          torch.matmul(L, F0)[:, :, :],
                                           # torch.matmul(L_squared, F0)[:, :, :]
                                           ),
                                          -1))

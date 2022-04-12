@@ -25,7 +25,7 @@ class eVTOL:
     def __init__(self,
                  id,
                  location = None,
-                 speed = 100, #miles/hr
+                 speed = 40, #miles/hr
                  max_passenger = 6,
                  current_passengers=0,
                  charging = False,

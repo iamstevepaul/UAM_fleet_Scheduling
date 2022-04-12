@@ -9,6 +9,10 @@ from eVTOL import eVTOL
 from Vertiport import Vertiport
 from gym.spaces import Discrete, MultiBinary, Box, Dict
 import networkx as nx
+from topology import *
+import scipy.sparse as sp
+from persim import wasserstein, bottleneck
+from collections import defaultdict
 
 class UAMEnv(gym.Env):
 
@@ -38,8 +42,8 @@ class UAMEnv(gym.Env):
             Vertiport(
                 id=i,
                 location=vertiport_locations[i,:],
-                max_evotls_park = 3,
-                max_evtol_charge=3
+                max_evotls_park = 6,
+                max_evtol_charge=6
             )
             for i in range(n_vertiports)]
 
@@ -113,6 +117,7 @@ class UAMEnv(gym.Env):
                 evtol_graph_adjacency= Box(low=0, high=1, shape=evtol_graph["adjacency"].shape),
             )
         )
+
 
     def compute_reward(self):
         reward = .1
@@ -258,6 +263,7 @@ class UAMEnv(gym.Env):
 
         if self.current_time > self.time_horizon:
             done = True
+            # reward = ((self.total_ticket_collection - self.total_electricity_charge)).item()
             reward = ((self.total_ticket_collection - self.total_electricity_charge)/(self.time_varying_demand_model["demand"]*self.passenger_pricing_model).sum()).item()
             info = {"is_success": done,
                     "episode": {
@@ -266,8 +272,8 @@ class UAMEnv(gym.Env):
                         }
                     }
 
-
-        return self.get_new_state(), reward, done, info
+        new_state = self.get_new_state()
+        return new_state, reward, done, info
 
     def get_mask(self):
         evtol_id = self.evtol_taking_decision
@@ -304,7 +310,7 @@ class UAMEnv(gym.Env):
                 "evtol_graph_nodes": evtol_graph["nodes"],
                 "evtol_graph_adjacency": evtol_graph["adjacency"],
                 "time_varying_demand": self.time_varying_demand_model,
-                "passenger_pricing": self.passenger_pricing_model
+                "passenger_pricing": self.passenger_pricing_model,
         }
 
     def update_evtols_locations(self, evtol_id, location):
@@ -348,7 +354,7 @@ class UAMEnv(gym.Env):
             evtols_initial_locations = self.generate_evtols_starting_locations()
         self.evtols = [
             eVTOL(
-                id=i, max_passenger=5,
+                id=i, max_passenger=6,
                 location=evtols_initial_locations[i, :],
                 take_off_time=self.take_off_time,
                 landing_time=self.landing_time
@@ -374,6 +380,7 @@ class UAMEnv(gym.Env):
             self.vertiports_n_parked[self.evtols[i].current_location, 0] += 1
             self.vertiports[self.evtols[i].current_location].update_parked_evtols(1)
         self.time_varying_demand_model = self.get_time_varying_demand()
+
         # if vertiports_max_parked:
         #     self.vertiports_max_parked = vertiports_max_parked
         # else:
@@ -389,6 +396,64 @@ class UAMEnv(gym.Env):
         #         self.vertiports_max_charged[i, 0] = self.vertiports[i].max_evtol_charge
 
         return self.get_new_state()
+
+    def var_preprocess(self, adj, r):
+        adj_ = adj + sp.eye(adj.shape[0])
+        adj_ = adj_ ** r
+        adj_[adj_ > 1] = 1
+        rowsum = adj_.sum(1).A1
+        degree_mat_inv_sqrt = sp.diags(np.power(rowsum, -0.5))
+        adj_normalized = adj_.dot(degree_mat_inv_sqrt).T.dot(degree_mat_inv_sqrt).tocsr()
+        return adj_normalized
+
+    def get_topo_laplacian(self, data):
+
+        X_loc = data['vertiport_graph_nodes'][None, :, :]
+        # distance_matrix = ((((X_loc[:, :, None] - X_loc[:, None]) ** 2).sum(-1)) ** .5)[0]
+        distance_matrix = th.cdist(th.tensor(X_loc), th.tensor(X_loc), p=2)[0]
+
+        adj_ = np.float32(distance_matrix < 0.8)
+
+        dt = defaultdict(list)
+        for i in range(adj_.shape[0]):
+            n_i = adj_[i, :].nonzero()[0].tolist()
+
+            dt[i] = n_i
+
+        adj = nx.adjacency_matrix(nx.from_dict_of_lists(dt))
+        adj_array = adj.toarray().astype(np.float32)
+        var_laplacian = self.var_preprocess(adj=adj, r=2).toarray()
+
+        secondorder_subgraph = k_th_order_weighted_subgraph(adj_mat=adj_array, w_adj_mat=distance_matrix, k=2)
+
+        reg_dgms = list()
+        for i in range(len(secondorder_subgraph)):
+            # print(i)
+            tmp_reg_dgms = simplicial_complex_dgm(secondorder_subgraph[i])
+            if tmp_reg_dgms.size == 0:
+                reg_dgms.append(np.array([]))
+            else:
+                reg_dgms.append(np.unique(tmp_reg_dgms, axis=0))
+
+        reg_dgms = np.array(reg_dgms)
+
+        row_labels = np.where(var_laplacian > 0.)[0]
+        col_labels = np.where(var_laplacian > 0.)[1]
+
+        topo_laplacian_k_2 = np.zeros(var_laplacian.shape, dtype=np.float32)
+
+        for i in range(row_labels.shape[0]):
+            tmp_row_label = row_labels[i]
+            tmp_col_label = col_labels[i]
+            tmp_wasserstin_dis = wasserstein(reg_dgms[tmp_row_label], reg_dgms[tmp_col_label])
+            # if tmp_wasserstin_dis == 0.:
+            #     topo_laplacian_k_2[tmp_row_label, tmp_col_label] = 1. / 1e-1
+            #     topo_laplacian_k_2[tmp_col_label, tmp_row_label] = 1. / 1e-1
+            # else:
+            topo_laplacian_k_2[tmp_row_label, tmp_col_label] = 1. / (tmp_wasserstin_dis + 1)
+            topo_laplacian_k_2[tmp_col_label, tmp_row_label] = 1. / (tmp_wasserstin_dis + 1)
+
+        return topo_laplacian_k_2
 
 
     def render(self, mode="human"):
@@ -457,7 +522,7 @@ class UAMEnv(gym.Env):
         return demand
 
     def generate_electricity_pricing_model(self):
-        price = 2.0
+        price = 1.0
         return th.tensor([price])
 
 
@@ -472,7 +537,7 @@ class UAMEnv(gym.Env):
 
     def generate_passenger_pricing_model(self):
 
-        return ((self.vertiports_distance_matrix * .1 + 2).to(th.int64)).to(th.float32)
+        return ((self.vertiports_distance_matrix * .8).to(th.int64)).to(th.float32)
 
     def single_peak_demand(self, time, peak_time, peak, base, std):
         demand = int((1/(std*1.41*3.14))*np.exp(-.5*((time - peak_time)/std)**2)*peak + base) + th.randint(1,10, (1,)).item()
@@ -498,11 +563,11 @@ class UAMEnv(gym.Env):
                 for k in range(self.n_vertiports):
                     if j != k:
                         if j in urbans and k in urbans:
-                            demand_data[i, j, k] = self.double_peak_demand(time, 9.00, 4.30, 200, 200, 50, .5, .5)
+                            demand_data[i, j, k] = self.double_peak_demand(time, 9.00, 4.30, 100, 100, 40, .5, .5)
                         elif j in urbans and k not in urbans:
-                            demand_data[i, j, k] = self.single_peak_demand(time, 4.30, 50, 30, .5)
+                            demand_data[i, j, k] = self.single_peak_demand(time, 4.30, 30, 20, .5)
                         elif j not in urbans and k in urbans:
-                            demand_data[i, j, k] = self.single_peak_demand(time, 9.00, 50, 30, .5)
+                            demand_data[i, j, k] = self.single_peak_demand(time, 9.00, 30, 20, .5)
                         else:
-                            demand_data[i, j, k] = 30 + th.randint(1, 10, (1,)).item()
+                            demand_data[i, j, k] = 20 + th.randint(1, 10, (1,)).item()
         return {"demand":demand_data, "time_points": th.tensor(time_points)}
