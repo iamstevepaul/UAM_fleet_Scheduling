@@ -51,7 +51,7 @@ class UAMEnv(gym.Env):
         self.landing_time = landing_time # 15 minutes or .25 hours
         self.evtols = [
             eVTOL(
-                id=i, max_passenger=6,
+                id=i, max_passenger=4,
                   location=evtols_initial_locations[i,:],
                   take_off_time = take_off_time,
                 landing_time=landing_time
@@ -354,7 +354,7 @@ class UAMEnv(gym.Env):
             evtols_initial_locations = self.generate_evtols_starting_locations()
         self.evtols = [
             eVTOL(
-                id=i, max_passenger=6,
+                id=i, max_passenger=4,
                 location=evtols_initial_locations[i, :],
                 take_off_time=self.take_off_time,
                 landing_time=self.landing_time
@@ -464,12 +464,12 @@ class UAMEnv(gym.Env):
             # x,y location
         Vertiport_graph_nods = []
         for vertiport in self.vertiports:
-            props = [vertiport.location[0].item()/100,
-                     vertiport.location[1].item()/100,
+            props = [vertiport.location[0].item()/60,
+                     vertiport.location[1].item()/60,
                      vertiport.n_evtol_parked/vertiport.max_evotls_park,
                      vertiport.n_evtols_charging/vertiport.max_evtol_charge,
-                     vertiport.max_evotls_park/3,
-                     vertiport.max_evtol_charge/3,]
+                     vertiport.max_evotls_park/6,
+                     vertiport.max_evtol_charge/6,]
             ## information  regarding the edmand
             from_sum = self.time_varying_demand_model["demand"][:, vertiport.id, :].sum(-1)
             to_sum = self.time_varying_demand_model["demand"][:, :, vertiport.id].sum(-1)
