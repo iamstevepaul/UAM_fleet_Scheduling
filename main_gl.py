@@ -55,7 +55,7 @@ model = PPO(
     env,
     gamma=1.00,
     verbose=1,
-    n_epochs=50,
+    n_epochs=100,
     batch_size=5000,
     tensorboard_log="logger/",
     # create_eval_env=True,

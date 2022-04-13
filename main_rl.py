@@ -25,7 +25,8 @@ from stable_baselines_al.common.vec_env import DummyVecEnv, SubprocVecEnv
 warnings.filterwarnings('ignore')
 n_vertiports = 8 # number of vertiports
 n_evtols = 19 # number of evtols
-vertiport_locations = th.rand((n_vertiports,2))*100 # actual coordinates of the vertiports
+max_x_y_axis = 50
+vertiport_locations = th.rand((n_vertiports,2))*max_x_y_axis # actual coordinates of the vertiports
 evtols_initial_locations = th.randint(0, n_vertiports, (n_evtols, 1)) # initial locations of the evtols
 demand = th.randint(0, 100, (n_vertiports, n_vertiports)) # constant demand for now
 ticket = demand*.05 # price of the ticket
@@ -39,6 +40,7 @@ env = UAMEnv(
         evtols_initial_locations = evtols_initial_locations,
         demand_model=demand,
         time_horizon = time_horizon,
+        max_x_y_axis = max_x_y_axis
     )
 
 policy_kwargs=dict(
@@ -48,19 +50,20 @@ policy_kwargs=dict(
     net_arch=[dict(vf=[128],pi=[128])]
 )
 
+
 model = PPO(
     CustomNN,
     env,
     gamma=1.00,
     verbose=1,
     n_epochs=100,
-    batch_size=5000,
+    batch_size=10000,
     tensorboard_log="logger/",
     # create_eval_env=True,
-    n_steps=10000,
+    n_steps=20000,
     learning_rate=0.000001,
-    policy_kwargs = policy_kwargs,
-    ent_coef=0.1,
+    policy_kwargs=policy_kwargs,
+    ent_coef=0.4,
     vf_coef=0.5
 )
 
@@ -75,4 +78,4 @@ log_dir = "."
 # model = PPO.load(log_dir + "r5", env=env)
 
 model.learn(total_timesteps=4000000)
-model.save(log_dir + "r_gcaps")
+model.save(log_dir + "r_mlp")
