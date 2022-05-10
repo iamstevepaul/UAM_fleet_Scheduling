@@ -96,3 +96,7 @@ class CustomNN(MultiInputActorCriticPolicy):
         actions = distribution.get_actions(deterministic=deterministic)
         log_prob = distribution.log_prob(actions)
         return actions, values, log_prob
+
+    def _predict(self, observation: th.Tensor, deterministic: bool = True) -> th.Tensor:
+        actions, values, log_prob = self.forward(observation, deterministic=deterministic)
+        return th.tensor([actions])

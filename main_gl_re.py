@@ -1,3 +1,6 @@
+"""
+Author: Steve Paul 
+Date: 4/28/22 """
 from torch import nn
 from collections import defaultdict
 import warnings
@@ -50,20 +53,19 @@ policy_kwargs=dict(
     net_arch=[dict(vf=[128],pi=[128])]
 )
 
-
 model = PPO(
-    CustomNN,
+    ActorCriticGCAPSPolicy,
     env,
     gamma=1.00,
     verbose=1,
     n_epochs=100,
-    batch_size=10000,
+    batch_size=5000,
     tensorboard_log="logger/",
     # create_eval_env=True,
-    n_steps=20000,
+    n_steps=15000,
     learning_rate=0.000001,
-    policy_kwargs=policy_kwargs,
-    ent_coef=0.01,
+    policy_kwargs = policy_kwargs,
+    ent_coef=0.4,
     vf_coef=0.5
 )
 
@@ -78,4 +80,4 @@ log_dir = "."
 # model = PPO.load(log_dir + "r5", env=env)
 
 model.learn(total_timesteps=4000000)
-model.save(log_dir + "r_mlp")
+model.save(log_dir + "r_gcaps")

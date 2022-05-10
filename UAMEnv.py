@@ -48,6 +48,7 @@ class UAMEnv(gym.Env):
         self.max_charged = vertiports_max_charged
         self.max_parked = vertiports_max_parked
         self.max_passenger = max_passenger
+        self.traj_log_list = []
         while ((evtols_initial_locations == evtols_initial_locations.T.mode().values).to(th.int64).sum()).item() > vertiports_max_charged:
             evtols_initial_locations = self.generate_evtols_starting_locations()
 
@@ -140,10 +141,19 @@ class UAMEnv(gym.Env):
 
     def step(self, action):
         # action taken should be in such a way that UAM taking decision can only go to vertiports where there is a vacancy to park or charge
+
+
         evtol_taking_decision_id = self.evtol_taking_decision
         current_time = self.current_time.clone()
-
+        # print(current_time)
         evtol_taking_decision = self.evtols[evtol_taking_decision_id]
+        if action == evtol_taking_decision.current_location:
+            trip = 0
+        else:
+            trip = 1
+        traj_log = [self.evtol_taking_decision, self.evtols[self.evtol_taking_decision].current_location, action,
+                    current_time, trip]
+        self.traj_log_list.append(traj_log)
 
         # update evtols needs decision
 
@@ -276,6 +286,19 @@ class UAMEnv(gym.Env):
             done = True
             # reward = ((self.total_ticket_collection - self.total_electricity_charge)).item()
             reward = ((self.total_ticket_collection - self.total_electricity_charge)/(self.time_varying_demand_model["demand"]*self.passenger_pricing_model).sum()).item()
+            self.total_reward = reward
+            data = {
+                "location": self.vertiport_locations,
+                "time_varying_demand": self.time_varying_demand_model,
+                "trajectory": self.traj_log_list
+            }
+            ft = (np.array(self.traj_log_list))[:, 4].sum()
+            # import pickle
+            # with open("logging_2.pkl", "wb") as f:
+            #     pickle.dump(data, f)
+            #     f.close()
+            if reward > 0.053:
+                ft = 0
             info = {"is_success": done,
                     "episode": {
                         "r": reward,
@@ -322,8 +345,8 @@ class UAMEnv(gym.Env):
                 "vertiport_graph_adjacency": vertiport_graph["adjacency"],
                 "evtol_graph_nodes": evtol_graph["nodes"],
                 "evtol_graph_adjacency": evtol_graph["adjacency"],
-                "time_varying_demand": self.time_varying_demand_model,
-                "passenger_pricing": self.passenger_pricing_model,
+                # "time_varying_demand": self.time_varying_demand_model,
+                # "passenger_pricing": self.passenger_pricing_model,
         }
 
     def update_evtols_locations(self, evtol_id, location):
@@ -388,6 +411,7 @@ class UAMEnv(gym.Env):
 
         self.electricity_pricing_model = self.generate_electricity_pricing_model()
         self.vertiports_n_charged = th.zeros((self.n_vertiports, 1))
+        self.traj_log_list = []
 
         self.vertiports_n_parked = th.zeros((self.n_vertiports, 1))
         for i in range(self.n_vertiports):
@@ -557,16 +581,16 @@ class UAMEnv(gym.Env):
         return ((self.vertiports_distance_matrix * 1.5).to(th.int64)).to(th.float32)
 
     def single_peak_demand(self, time, peak_time, peak, base, std):
-        demand = int((1/(std*1.41*3.14))*np.exp(-.5*((time - peak_time)/std)**2)*peak + base) + th.randint(1,10, (1,)).item()
+        demand = int(((1/(std*1.41*3.14))*np.exp(-.5*((time - peak_time)/std)**2))*peak + peak) + th.randint(1,10, (1,)).item()
         return demand
 
     def double_peak_demand(self, time, peak_time1, peak_time2, peak1, peak2, base, std1, std2):
         if time < (peak_time1 + peak_time2)/2:
-            demand = int((1 / (std1 * 1.41 * 3.14)) * np.exp(-.5 * ((time - peak_time1) / std1) ** 2) * peak1 + base)
+            demand = int(((1 / (std1 * 1.41 * 3.14)) * np.exp(-.5 * ((time - peak_time1) / std1) ** 2)) * peak1 + peak1)
         else:
-            demand = int((1 / (std2 * 1.41 * 3.14)) * np.exp(-.5 * ((time - peak_time2) / std2) ** 2) * peak2 + base)
+            demand = int(((1 / (std2 * 1.41 * 3.14)) * np.exp(-.5 * ((time - peak_time2) / std2) ** 2)) * peak2 + peak2)
 
-        return demand + + th.randint(1,10, (1,)).item()
+        return demand #+ + th.randint(1,10, (1,)).item()
 
     def get_time_varying_demand(self):
         urban_center = th.tensor([[45.00, 55.00]])
@@ -580,11 +604,11 @@ class UAMEnv(gym.Env):
                 for k in range(self.n_vertiports):
                     if j != k:
                         if j in urbans and k in urbans:
-                            demand_data[i, j, k] = self.double_peak_demand(time, 9.00, 4.30, 100, 100, 40, .5, .5)
+                            demand_data[i, j, k] = self.double_peak_demand(time, 9.00, 4.30, 100, 100, 40, 4, 4)
                         elif j in urbans and k not in urbans:
-                            demand_data[i, j, k] = self.single_peak_demand(time, 4.30, 30, 20, .5)
+                            demand_data[i, j, k] = self.single_peak_demand(time, 4.30, 30, 20, 4)
                         elif j not in urbans and k in urbans:
-                            demand_data[i, j, k] = self.single_peak_demand(time, 9.00, 30, 20, .5)
+                            demand_data[i, j, k] = self.single_peak_demand(time, 9.00, 30, 20, 4)
                         else:
                             demand_data[i, j, k] = 20 + th.randint(1, 10, (1,)).item()
         return {"demand":demand_data, "time_points": th.tensor(time_points)}
